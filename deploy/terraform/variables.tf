@@ -1,11 +1,11 @@
 variable "cluster-name"{
-    default ="exam-cluster"
+    default ="exam-cluster-task1"
 }
 variable "cluster-description"{
     default ="Cluster k8 to task 1"
 }
 variable "project"{
-    default ="exam-devops"
+    default ="devops-soabel"
 }
 variable "region"{
     default ="us-central1"
