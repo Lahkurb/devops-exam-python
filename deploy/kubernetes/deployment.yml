@@ -1,0 +1,22 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: mypythonapp
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      run: mypythonapp
+  template:
+    metadata:
+      labels:
+        run: mypythonapp
+    spec:
+      containers:
+    #   - image: nginx:latest
+      - image: gcr.io/exam-devops/mypythonapp:0.0.1
+        imagePullPolicy: IfNotPresent
+        name: mypythonapp
+        ports:
+        - containerPort: 80
+          protocol: TCP

@@ -1,10 +1,14 @@
 
-from flask import Flask
+from flask import Flask, jsonify
 import socket
 
 from square import Square
 
 app = Flask(__name__)
+
+@app.route('/')
+def health():
+    return jsonify({"status":"true"})
 
 @app.route('/greeting')
 def greeting():
@@ -17,4 +21,4 @@ def square(x=0):
     return result
 
 if __name__ == '__main__':
-    app.run(debug=True, port=4000,host='0.0.0.0')
+    app.run(debug=True, port=80,host='0.0.0.0')
