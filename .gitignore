@@ -128,3 +128,8 @@ dmypy.json
 # Pyre type checker
 .pyre/
 .DS_Store
+
+# other
+*-out.*
+terraform-provider-google*
+lock.json

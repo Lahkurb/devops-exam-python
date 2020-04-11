@@ -1,0 +1,25 @@
+
+variable "credentials"{
+    default ="{CREDENTIALS_FILE}"
+}
+variable "cluster-name"{
+    default ="{CLUSTER_NAME}"
+}
+variable "cluster-description"{
+    default ="{CLUSTER_DESCRIPTION}"
+}
+variable "project"{
+    default ="{PROJECT_ID}"
+}
+variable "region"{
+    default ="{REGION}"
+}
+variable "zone"{
+    default ="{REGION}-c"
+}
+variable "node_count"{
+    default = "{NODE_COUNT}"
+}
+variable "machine_type"{
+    default ="{MACHINE_TYPE}"
+}

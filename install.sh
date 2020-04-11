@@ -1,0 +1,157 @@
+#!/bin/bash
+#Script  de deploy service
+
+## ARGUMENTS
+
+if [ -z $1 ] ; then
+  echo "First parameter needed. CREATE | DESTROY" && exit 1;
+fi
+if [[ "$1" != "CREATE" && "$1" != "DESTROY" ]]; then
+  echo "The value of first argument is invalid!. The values are CREATE | DESTROY" && exit 1;
+fi
+if [ -z $2 ] ; then
+  echo "Second parameter needed!" && exit 1;
+fi
+
+if [[ "$1" != "" ]]; then
+    OPERATION="$1"
+fi
+
+if [[ "$2" != "" ]]; then
+    OUTPUT=$(pwd)/"$2"
+    touch $OUTPUT
+    echo "LOG output" | tee  $OUTPUT
+    echo "==========" | tee -a $OUTPUT
+fi
+
+## VARIABLE DEFINITIONS
+APP_NAME="myjavaapp"
+CREDENTIALS_FILE="~/credentials.json"
+CLUSTER_NAME="exam-cluster-task1"
+CLUSTER_DESCRIPTION="Test Cluster"
+PROJECT_ID="devops-soabel"
+REGION="us-central1"
+NODE_COUNT=1
+MACHINE_TYPE="n1-standard-1"
+ACCOUNT_EMAIL=socrateslaiza@gmail.com
+DOCKER_IMAGE_VERSION=0.0.1
+DOCKER_IMAGE_TAG="gcr.io/$PROJECT_ID/$APP_NAME:$DOCKER_IMAGE_VERSION"
+DOCKER_IMAGE_PORT=80
+
+## REPLACE VARIABLES
+echo --1: REPLACE VARIABLES | tee -a $OUTPUT
+cp deploy/terraform/variables.tf.txt deploy/terraform/variables-out.tf
+
+#-- Terraform Variables
+sed -i -e "s+{CREDENTIALS_FILE}+$CREDENTIALS_FILE+g" deploy/terraform/variables-out.tf
+sed -i -e "s/{CLUSTER_NAME}/$CLUSTER_NAME/g" deploy/terraform/variables-out.tf
+sed -i -e "s/{CLUSTER_DESCRIPTION}/$CLUSTER_DESCRIPTION/g" deploy/terraform/variables-out.tf
+sed -i -e "s/{PROJECT_ID}/$PROJECT_ID/g" deploy/terraform/variables-out.tf
+sed -i -e "s/{REGION}/$REGION/g" deploy/terraform/variables-out.tf
+sed -i -e "s/{NODE_COUNT}/$NODE_COUNT/g" deploy/terraform/variables-out.tf
+sed -i -e "s/{MACHINE_TYPE}/$MACHINE_TYPE/g" deploy/terraform/variables-out.tf
+
+#-- Kubernetes Files
+cp deploy/kubernetes/deployment.yml deploy/kubernetes/deployment-out.yml 
+cp deploy/kubernetes/service.yml deploy/kubernetes/service-out.yml 
+cp deploy/kubernetes/ingress.yml deploy/kubernetes/ingress-out.yml 
+
+sed -i -e "s/<APP_NAME>/$APP_NAME/g" deploy/kubernetes/deployment-out.yml 
+sed -i -e "s+<DOCKER_IMAGE_TAG>+$DOCKER_IMAGE_TAG+g" deploy/kubernetes/deployment-out.yml
+sed -i -e "s/<DOCKER_IMAGE_PORT>/$DOCKER_IMAGE_PORT/g" deploy/kubernetes/deployment-out.yml 
+
+sed -i -e "s/<APP_NAME>/$APP_NAME/g" deploy/kubernetes/service-out.yml 
+sed -i -e "s/<APP_NAME>/$APP_NAME/g" deploy/kubernetes/ingress-out.yml 
+
+echo --2: INITIALIZE TERRAFORM | tee -a $OUTPUT
+
+cd deploy/terraform/ && terraform init | tee -a $OUTPUT
+
+if [[ "$OPERATION" == "DESTROY" ]]; then
+
+    EXISTS_CLUSTER=`gcloud container clusters list | grep -e $CLUSTER_NAME`
+
+    if [[ !$EXISTS_CLUSTER ]]; then
+        echo --The Cluster: $CLUSTER_NAME not exists | tee -a $OUTPUT
+        exit 0
+    fi
+
+    echo --3: CONNECT TO Kubernetes Cluster $CLUSTER_NAME
+
+    gcloud container clusters get-credentials $CLUSTER_NAME --region $REGION --project $PROJECT_ID >> $OUTPUT
+
+    echo --4: DELETE DEPLOYMENT, SERVICES AND INGRESS | tee -a $OUTPUT
+
+    # DELETE DEPLOYMENT, SERVICE AND INGRESS
+
+    EXISTS_SVC=`kubectl get svc | grep -e $APP_NAME`
+    EXISTS_DEPLOY=`kubectl get deploy | grep -e $APP_NAME`
+    EXISTS_ING=`kubectl get ing | grep -e $APP_NAME`
+
+    if [[ $EXISTS_SVC ]]; then
+        kubectl delete deploy/$APP_NAME | tee -a $OUTPUT
+    else
+        echo --Application not exists in cluster | tee -a $OUTPUT
+    fi
+    if [[ $EXISTS_DEPLOY ]]; then
+        kubectl delete svc/$APP_NAME | tee -a $OUTPUT
+    fi
+    if [[ $EXISTS_ING ]]; then
+        kubectl delete ing/$APP_NAME-ingress | tee -a $OUTPUT
+    fi
+    
+    echo --5: DELETE KUBERNETES CLUSTER: $CLUSTER_NAME
+    #DELETE CLUSTER
+
+    # terraform destroy | tee -a $OUTPUT
+
+    exit 0
+fi
+echo -e | tee -a $OUTPUT
+echo --3: CREATE KUBERNETES CLUSTER: $CLUSTER_NAME | tee -a $OUTPUT
+
+terraform apply | tee -a $OUTPUT
+
+EXISTS_CLUSTER=`gcloud container clusters list | grep -e $CLUSTER_NAME`
+
+if [[ !$EXISTS_CLUSTER ]]; then
+    echo --The Cluster: $CLUSTER_NAME not exists | tee -a $OUTPUT
+    exit 0
+fi
+
+echo KUBERNETES CLUSTER CREATED: $CLUSTER_NAME | tee -a $OUTPUT
+
+cd -
+
+echo --4: CONNECT TO Kubernetes Cluster: $CLUSTER_NAME | tee -a $OUTPUT
+
+if [[ !$(gcloud container clusters get-credentials $CLUSTER_NAME --region $REGION --project $PROJECT_ID | tee -a $OUTPUT) ]]; then
+    echo ERROR connecting to Cluster: $CLUSTER_NAME | tee -a $OUTPUT
+    exit 2
+fi
+
+echo --5: CONFIGURE GOOGLE REGISTRY | tee -a $OUTPUT
+
+if [[ !$(kubectl create secret docker-registry gcr-json-key \
+--docker-server=eu.gcr.io \
+--docker-username=_json_key \
+--docker-password="$(cat $CREDENTIALS_FILE)" \
+--docker-email=$ACCOUNT_EMAIL | tee -a $OUTPUT) ]]; then
+    echo ERROR Configure Registry | tee -a $OUTPUT
+    exit 2
+fi
+
+kubectl patch serviceaccount default \
+-p '{"imagePullSecrets": [{"name": "gcr-json-key"}]}' | tee -a $OUTPUT
+
+echo --6: BUILD EN PUSH IMAGE TO REGISTRY | tee -a $OUTPUT
+
+docker build -t $APP_NAME . && docker tag $APP_NAME $DOCKER_IMAGE_TAG && docker push $DOCKER_IMAGE_TAG | tee -a $OUTPUT
+
+echo --7: DEPLOY TO KUBERNETES CLUSTER
+
+kubectl apply -f deploy/kubernetes/deployment-out.yml && kubectl apply -f deploy/kubernetes/service-out.yml && kubectl apply -f deploy/kubernetes/ingress-out.yml | tee -a $OUTPUT
+
+echo --SUCCESSFULL DEPLOY !! | tee -a $OUTPUT
+
+exit 0

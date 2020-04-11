@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: mypythonapp
+  name: <APP_NAME>
   namespace: default
 spec:
   ports:
@@ -9,5 +9,5 @@ spec:
     protocol: TCP
     targetPort: 80
   selector:
-    run: mypythonapp
+    run: <APP_NAME>
   type: NodePort
