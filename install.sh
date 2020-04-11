@@ -25,7 +25,7 @@ if [[ "$2" != "" ]]; then
 fi
 
 ## VARIABLE DEFINITIONS
-APP_NAME="myjavaapp"
+APP_NAME="mypythonapp"
 CREDENTIALS_FILE="~/credentials.json"
 CLUSTER_NAME="exam-cluster-task1"
 CLUSTER_DESCRIPTION="Test Cluster"
@@ -68,15 +68,13 @@ echo --2: INITIALIZE TERRAFORM | tee -a $OUTPUT
 cd deploy/terraform/ && terraform init | tee -a $OUTPUT
 
 if [[ "$OPERATION" == "DESTROY" ]]; then
-
-    EXISTS_CLUSTER=`gcloud container clusters list | grep -e $CLUSTER_NAME`
-
-    if [[ !$EXISTS_CLUSTER ]]; then
+    cd -
+    if [[ !($(gcloud container clusters list | grep -c $CLUSTER_NAME) -ge 0) ]]; then
         echo --The Cluster: $CLUSTER_NAME not exists | tee -a $OUTPUT
         exit 0
     fi
 
-    echo --3: CONNECT TO Kubernetes Cluster $CLUSTER_NAME
+    echo --3: CONNECT TO Kubernetes Cluster $CLUSTER_NAME | tee -a $OUTPUT
 
     gcloud container clusters get-credentials $CLUSTER_NAME --region $REGION --project $PROJECT_ID >> $OUTPUT
 
@@ -89,21 +87,26 @@ if [[ "$OPERATION" == "DESTROY" ]]; then
     EXISTS_ING=`kubectl get ing | grep -e $APP_NAME`
 
     if [[ $EXISTS_SVC ]]; then
-        kubectl delete deploy/$APP_NAME | tee -a $OUTPUT
+        kubectl delete -f deploy/kubernetes/deployment-out.yml | tee -a $OUTPUT
     else
         echo --Application not exists in cluster | tee -a $OUTPUT
     fi
     if [[ $EXISTS_DEPLOY ]]; then
-        kubectl delete svc/$APP_NAME | tee -a $OUTPUT
+        kubectl delete -f deploy/kubernetes/service-out.yml | tee -a $OUTPUT
     fi
     if [[ $EXISTS_ING ]]; then
-        kubectl delete ing/$APP_NAME-ingress | tee -a $OUTPUT
+        kubectl delete -f deploy/kubernetes/ingress-out.yml | tee -a $OUTPUT
     fi
     
     echo --5: DELETE KUBERNETES CLUSTER: $CLUSTER_NAME
     #DELETE CLUSTER
+    cd deploy/terraform/ && terraform init | tee -a $OUTPUT
 
-    # terraform destroy | tee -a $OUTPUT
+    pwd
+    
+    terraform destroy | tee -a $OUTPUT
+
+    echo --The Cluster: $CLUSTER_NAME was deleted | tee -a $OUTPUT
 
     exit 0
 fi
@@ -111,34 +114,37 @@ echo -e | tee -a $OUTPUT
 echo --3: CREATE KUBERNETES CLUSTER: $CLUSTER_NAME | tee -a $OUTPUT
 
 terraform apply | tee -a $OUTPUT
+echo --The Cluster: $CLUSTER_NAME was created | tee -a $OUTPUT
 
-EXISTS_CLUSTER=`gcloud container clusters list | grep -e $CLUSTER_NAME`
-
-if [[ !$EXISTS_CLUSTER ]]; then
+if [[ !($(gcloud container clusters list | grep -c $CLUSTER_NAME) -ge 0) ]]; then
     echo --The Cluster: $CLUSTER_NAME not exists | tee -a $OUTPUT
     exit 0
 fi
 
-echo KUBERNETES CLUSTER CREATED: $CLUSTER_NAME | tee -a $OUTPUT
+echo Kubernetes Cluster created: $CLUSTER_NAME | tee -a $OUTPUT
 
 cd -
 
 echo --4: CONNECT TO Kubernetes Cluster: $CLUSTER_NAME | tee -a $OUTPUT
 
-if [[ !$(gcloud container clusters get-credentials $CLUSTER_NAME --region $REGION --project $PROJECT_ID | tee -a $OUTPUT) ]]; then
-    echo ERROR connecting to Cluster: $CLUSTER_NAME | tee -a $OUTPUT
-    exit 2
-fi
+gcloud container clusters get-credentials $CLUSTER_NAME --region $REGION --project $PROJECT_ID | tee -a $OUTPUT
 
-echo --5: CONFIGURE GOOGLE REGISTRY | tee -a $OUTPUT
+echo --5: CREATE SECRET TO REGISTRY | tee -a $OUTPUT
 
-if [[ !$(kubectl create secret docker-registry gcr-json-key \
---docker-server=eu.gcr.io \
---docker-username=_json_key \
---docker-password="$(cat $CREDENTIALS_FILE)" \
---docker-email=$ACCOUNT_EMAIL | tee -a $OUTPUT) ]]; then
-    echo ERROR Configure Registry | tee -a $OUTPUT
-    exit 2
+if [[ !($(kubectl get secret | grep -c gcr-json-key) -ge 0) ]]; then
+    kubectl create secret docker-registry gcr-json-key \
+    --docker-server=eu.gcr.io \
+    --docker-username=_json_key \
+    --docker-password="$(echo cat ${CREDENTIALS_FILE/\~/$HOME})" \
+    --docker-email=$ACCOUNT_EMAIL
+
+    if [[ !($(kubectl get secret | grep -c gcr-json-key) -ge 0) ]]; then
+        echo --ERROR The secret not was created | tee -a $OUTPUT
+        exit 0
+    fi
+    
+    echo Kubernetes Secret created: $CLUSTER_NAME | tee -a $OUTPUT
+
 fi
 
 kubectl patch serviceaccount default \
@@ -150,7 +156,9 @@ docker build -t $APP_NAME . && docker tag $APP_NAME $DOCKER_IMAGE_TAG && docker 
 
 echo --7: DEPLOY TO KUBERNETES CLUSTER
 
-kubectl apply -f deploy/kubernetes/deployment-out.yml && kubectl apply -f deploy/kubernetes/service-out.yml && kubectl apply -f deploy/kubernetes/ingress-out.yml | tee -a $OUTPUT
+kubectl apply -f deploy/kubernetes/deployment-out.yml | tee -a $OUTPUT && \
+kubectl apply -f deploy/kubernetes/service-out.yml | tee -a $OUTPUT && \
+kubectl apply -f deploy/kubernetes/ingress-out.yml | tee -a $OUTPUT
 
 echo --SUCCESSFULL DEPLOY !! | tee -a $OUTPUT
 

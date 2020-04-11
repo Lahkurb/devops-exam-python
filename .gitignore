@@ -133,3 +133,7 @@ dmypy.json
 *-out.*
 terraform-provider-google*
 lock.json
+terraform.tfstate
+terraform.tfstate*
+.terraform*
+
